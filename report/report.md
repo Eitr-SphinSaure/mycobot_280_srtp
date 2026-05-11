@@ -58,19 +58,11 @@
 
 需要说明的是，本文虽然以“面向智能机器人的漏洞挖掘与自动化攻击路径推理”为总体方向，但结项阶段的研究重点被进一步收敛到一个可复现、可建模且可防护验证的核心链路，即围绕 `JointState` 消息流的状态欺骗、竞争性发布与应用层防护问题。因此，本文并不追求对整个机器人控制系统进行全面覆盖，而是聚焦于一个能够代表 ROS2 机器人系统中典型信任风险的最小实验闭环。
 
-<SAURE_TODO>
-图 2-1 研究对象与实验对象图组占位。
-建议内容：
-1. 一张 myCobot-280-arduino 实机照片；
-2. 一张 MEGA R3 2560 开发板照片或局部特写；
-3. 如有条件，可补一张 ROS2 虚拟环境中的机械臂模型截图。
-建议说明的问题：
-- 交代本文研究对象、实机平台与虚拟环境对象之间的关系；
-- 说明本文同时包含“实机平台背景”和“虚拟环境主实验线”。
-建议排版：
-- 使用三图横排或“左实机、右虚拟环境”的二联图；
-- 图下注明各子图含义，例如“(a) 实机平台；(b) 开发板；(c) 虚拟模型”。
-</SAURE_TODO>
+|![](./src/2_1a.jpg)|![](./src/2_1b.jpg)|
+|:---:|:---:|
+| (a) 实机平台与仿真模型 | (b) 开发板 |
+
+<center>图 2-1 研究对象与实验对象图组。</center>
 
 ### 2.2 实验环境配置
 
@@ -98,29 +90,18 @@
 
 从工程组织形式看，本文主要围绕一个 ROS2 工作区 `colcon_ws` 展开。该工作区中包含与 myCobot 相关的 ROS2 功能包、仿真与显示链配置、桥接控制脚本以及后续引入的应用层防护逻辑。除 ROS2 工作区外，本文还维护了独立的 XSB 规则文件与实验记录文件，用于支撑攻击版与防护版推理模型的复现和对照分析。
 
-<SAURE_TODO>
-表 2-1 实验环境配置表占位。
-建议包含字段：
-- 类别；
-- 组件名称；
-- 版本/型号；
-- 作用说明。
-建议至少覆盖：
-- 宿主操作系统 Ubuntu 24.04 LTS；
-- 虚拟机操作系统 Ubuntu 20.04；
-- ROS2 Foxy；
-- Python 3.12；
-- XSB 5.0；
-- myCobot-280-arduino；
-- MEGA R3 2560；
-- `colcon_ws` 工作区。
-建议说明的问题：
-- 让读者快速把握实验环境的层次与依赖关系；
-- 支撑后续实验可复现性。
-建议排版：
-- 四列表格；
-- 如果项目较多，可以将“宿主侧”和“虚拟机侧”分组展示。
-</SAURE_TODO>
+|类别|组件名称|版本/型号|作用说明|
+|:---:|:---:|:---:|:---:|
+|宿主侧|宿主操作系统|Ubuntu 24.04 LTS|提供开发、建模与文档整理环境|
+|虚拟机侧|虚拟机操作系统|Ubuntu 20.04|提供 ROS2 实验环境|
+|虚拟机侧|ROS2 发行版|Foxy|支撑机械臂显示链的 ROS2 环境|
+|宿主侧|Python|3.12|用于编写攻击脚本与防护逻辑|
+|宿主侧|XSB|5.0|用于攻击路径推理建模|
+|硬件|myCobot-280-arduino|机械臂平台|提供实际机械臂对象与接口|
+|硬件|MEGA R3 2560|开发板|用于与机械臂控制链的接口适配|
+|工程组织|`colcon_ws`|ROS2 工作区|组织 ROS2 功能包、仿真配置与防护代码|
+
+<center>表 2-1 实验环境配置表。</center>
 
 #### 2.2.3 虚拟环境中的 ROS2 显示链
 
@@ -152,19 +133,11 @@
 - 若有余力，可在图中用不同颜色区分“发布者”“变换计算”“显示层”。
 </SAURE_TODO>
 
-<SAURE_TODO>
-图 2-3 ROS2 虚拟环境运行界面图组占位。
-建议内容：
-1. 一张 `test.launch.py` 启动后的 RViz 截图；
-2. 一张 `ros2 topic list` 或 `ros2 topic info /joint_states -v` 的终端截图；
-3. 如版面允许，可做成“界面图 + 命令输出图”的二联图。
-建议说明的问题：
-- 证明实验环境实际可运行；
-- 说明 `/joint_states` 发布者与订阅者关系已经被实验确认。
-建议排版：
-- 二联图或上下排版；
-- 图注中点明“左：RViz 模型界面；右：topic 信息确认”。
-</SAURE_TODO>
+|![](./src/2_3a.png)|![](./src/2_3b.png)|
+|:---:|:---:|
+| (a) RViz 运行界面 | (b) `/joint_states` 相关终端输出 |
+
+<center>图 2-3 ROS2 虚拟环境运行界面图组。</center>
 
 ### 2.3 相关技术基础
 
@@ -208,41 +181,26 @@ ROS2 的一个重要特征是分布式发现机制。处于同一 ROS2 域内的
 
 在正常情况下，`robot_state_publisher` 根据这些关节名和关节角信息计算变换关系，并更新 RViz 中的机械臂姿态；而在攻击实验中，攻击者正是通过构造名称匹配、范围合法、时间戳有效的 `JointState` 消息，才成功完成显示层状态欺骗。
 
-<SAURE_TODO>
-表 2-2 `JointState` 关键字段与约束说明表占位。
-建议包含字段：
-- 字段名；
-- 数据含义；
-- 在本文场景中的安全作用；
-- 若非法时可能造成的问题。
-建议至少包括：
-- `header.stamp`
-- `name`
-- `position`
-- `velocity`
-- `effort`
-建议说明的问题：
-- 帮助读者理解为什么“只是能发消息”还不足以构成有效攻击；
-- 为后文解释时间戳有效性、关节名匹配和范围检查打基础。
-建议排版：
-- 四列表格；
-- 强调 `header.stamp`、`name`、`position` 三项。
-</SAURE_TODO>
+|字段名|数据含义|安全作用|非法时可能造成的问题|
+|:---:|:---:|:---:|:---:|
+|`header.stamp`|时间戳|确保消息的时效性|时间戳无效可能导致消息被忽略或错误处理|
+|`name`|关节名称数组|验证消息的完整性|非法名称可能导致消息被拒绝或错误处理|
+|`position`|关节位置数组|控制机械臂姿态|非法位置可能导致机械臂姿态异常或损坏|
+|`velocity`|关节速度数组|反映机械臂运动状态|非法速度可能导致机械臂运动异常或安全风险|
+|`effort`|关节受力或力矩数组|评估机械臂负载情况|非法 effort 可能导致机械臂过载或损坏|
 
-<SAURE_TODO>
-表 2-3 myCobot-280 关节名称与关节范围表占位。
-建议包含字段：
-- 关节名称；
-- 最小值；
-- 最大值；
-- 单位。
-建议说明的问题：
-- 给出攻击脚本与防护逻辑中关节范围校验的依据；
-- 便于后文代码防护与攻击消息构造引用。
-建议排版：
-- 四列表格；
-- 单位统一标注为弧度。
-</SAURE_TODO>
+<center>表 2-2 `JointState` 关键字段与约束说明表。</center>
+
+|关节名称|最小值（rad）|最大值（rad）|
+|:---:|:---:|:---:|
+|`joint2_to_joint1`|`-2.9322`|`2.9322`|
+|`joint3_to_joint2`|`-2.3562`|`2.3562`|
+|`joint4_to_joint3`|`-2.6180`|`2.6180`|
+|`joint5_to_joint4`|`-2.5307`|`2.5307`|
+|`joint6_to_joint5`|`-2.8798`|`2.8798`|
+|`joint6output_to_joint6`|`-3.14159`|`3.14159`|
+
+<center>表 2-3 myCobot-280 关节名称与关节范围表。</center>
 
 #### 2.3.3 XSB 与 MulVAL 风格攻击路径推理
 
@@ -385,19 +343,13 @@ XSB 是支持表格化求值（tabling）的逻辑推理系统，适合用于基
 
 从安全建模角度看，竞争性 publisher 场景的重要性在于：它证明了攻击者即便无法独占关键 topic，也仍然能够通过持续参与同一状态流来破坏系统行为。因此，这类风险不只是“显示错一次”，而是一种更接近长期干扰与状态劫持的问题。
 
-<SAURE_TODO>
-图 3-3 竞争性 publisher 导致状态振荡的图组占位。
-建议内容：
-1. 一张正常姿态截图；
-2. 一张攻击者注入后异常姿态截图；
-3. 一张双 publisher 并存时姿态来回切换的现象图或示意图。
-建议说明的问题：
-- 直观展示“不是单次篡改，而是状态竞争导致的持续不稳定”；
-- 为后续防护验证提供对照基线。
-建议排版：
-- 三联图横排；
-- 如果无法准确截到振荡瞬间，可用“正常状态 vs 攻击状态”两图加文字说明补足。
-</SAURE_TODO>
+|![](./src/2_3a.png)|![](./src/3_3b.png)|![](./src/3_3c.png)|
+|:---:|:---:|:---:|
+|正常状态 | 攻击状态 | 最终状态 |
+
+<center>图 3-3 竞争性 publisher 导致的状态振荡现象。</center>
+
+> 图中展示了正常状态、攻击状态与最终异常状态三个典型画面。实际运行中，机械臂姿态会在正常状态与最终异常状态之间来回切换，表现为明显的振荡现象。
 
 ### 3.3 威胁模型与安全目标
 
@@ -485,31 +437,20 @@ XSB 是支持表格化求值（tabling）的逻辑推理系统，适合用于基
 
 从整体上看，攻击版事实层并没有试图穷举所有系统细节，而是围绕实验中真正有证据支撑的节点、topic、约束条件与信任假设进行建模。这种取舍使模型既足够轻量，又能够覆盖结项阶段最核心的风险链条。
 
-<SAURE_TODO>
-表 4-1 攻击版 XSB 事实层谓词说明表占位。
-建议包含字段：
-- 谓词名称；
-- 含义；
-- 对应实验对象；
-- 所属类别（节点/消息/能力/信任/扩展风险）。
-建议至少包括：
-- `rosNode/2`
-- `rosTopic/2`
-- `publishes/2`
-- `subscribes/2`
-- `messageType/2`
-- `noTopicAuth/2`
-- `noPublisherACL/2`
-- `trustsSubscriberInput/2`
-- `canGenerateCurrentTimestamp/1`
-- `bridgeNode/1`
-建议说明的问题：
-- 让读者快速读懂规则文件的基础符号系统；
-- 为后文规则层推导做符号准备。
-建议排版：
-- 四列表格；
-- 可按“基础结构事实 / 能力事实 / 信任事实”分组。
-</SAURE_TODO>
+|谓词|含义|对应实验对象|所属类别|
+|:---:|:---:|:---:|:---:|
+|`rosNode/2`|ROS2 节点信息|`joint_state_publisher_gui`、`robot_state_publisher`、`rviz2`|节点事实|
+|`rosTopic/2`|ROS2 话题信息|`/joint_states`、`/tf`|消息事实|
+|`publishes/2`|发布关系|`joint_state_publisher_gui` 发布 `/joint_states`|消息事实|
+|`subscribes/2`|订阅关系|`robot_state_publisher` 订阅 `/joint_states`|消息事实|
+|`messageType/2`|话题类型信息|`/joint_states` 的类型是 `sensor_msgs/msg/JointState`|消息事实|
+|`noTopicAuth/2`|缺乏话题认证|`mycobot_vm` 上的 `/joint_states` 没有认证|能力事实|
+|`noPublisherACL/2`|缺乏发布者访问控制|`mycobot_vm` 上的 `/joint_states` 没有 publisher ACL|能力事实|
+|`trustsSubscriberInput/2`|订阅者信任输入|`robot_state_publisher` 信任 `/joint_states` 的输入|信任事实|
+|`canGenerateCurrentTimestamp/1`|能生成当前时间戳|攻击者主机具备生成当前时间戳的能力|能力事实|
+|`bridgeNode/1`|桥接节点|`sync_plan_arduino` 可能作为桥接节点存在|节点事实|
+
+<center>表 4-1 攻击版 XSB 事实层谓词说明表</center>
 
 #### 4.2.2 规则层设计
 
@@ -553,26 +494,15 @@ XSB 是支持表格化求值（tabling）的逻辑推理系统，适合用于基
 
 这种查询设计的价值在于，它把“攻击成立”转换成了更容易写入报告与答辩的结论表达方式。例如，`misleadPoseDisplay(...)` 说明显示层欺骗可达，而 `policyViolation(...)` 则进一步指出这种行为已经违反了系统对关节状态权威输入的基本安全约束。实验中实际运行 `policyViolation(attacker_host, Action, Resource).` 后得到 `Action = publish, Resource = joint_states_topic`，正是这一思想的直接体现。
 
-<SAURE_TODO>
-表 4-2 主要查询及其安全含义说明表占位。
-建议包含字段：
-- 查询语句；
-- 返回结果；
-- 对应安全含义；
-- 对应实验现象。
-建议至少包含：
-- `misleadPoseDisplay(...)`
-- `oscillatingPoseDisplay(...)`
-- `physicalLayerRisk(...)`
-- `policyViolation(...)`
-- `defenseEffective(...)`
-建议说明的问题：
-- 让读者把 XSB 查询结果和实验结论直接对应起来；
-- 为第七节结果汇总预埋结构。
-建议排版：
-- 四列表格；
-- “返回结果”可先写 yes/no 或简化示例。
-</SAURE_TODO>
+|查询语句|返回结果|对应安全含义|
+|:---:|:---:|:---:|
+|`misleadPoseDisplay(attacker_host, mycobot_vm).`|yes|攻击者能够误导显示层姿态|攻击者成功通过伪造消息改变 RViz 显示|
+|`oscillatingPoseDisplay(attacker_host, mycobot_vm).`|yes|攻击者能够通过竞争性 publisher 导致显示层振荡|攻击者在合法发布者存在的情况下仍能干扰显示稳定性|
+|`physicalLayerRisk(attacker_host, mycobot_vm).`|yes|攻击者的状态链攻击可能向下游控制/物理层传播|攻击者的伪造消息可能通过桥接节点影响实机动作|
+|`policyViolation(attacker_host, Action, Resource).`|`Action = publish, Resource = joint_states_topic`|攻击者的行为构成对系统策略的违反|攻击者向关键 topic 发布未授权消息，违反了对权威输入的安全约束|
+|`defenseEffective(mycobot_vm, joint_states_topic).`|yes|防护措施在规则层使攻击链失效|加入认证与访问控制后，攻击链不再成立|
+
+<center>表 4-2 主要查询及其安全含义说明表</center>
 
 ### 4.3 防护版规则模型设计
 
@@ -594,27 +524,16 @@ XSB 是支持表格化求值（tabling）的逻辑推理系统，适合用于基
 
 此外，防护版没有简单删除所有攻击相关规则，而是保留了原有推理结构，只通过显式失败的 `noTopicAuth(_, _) :- fail.`、`noPublisherACL(_, _) :- fail.` 和 `noSingleAuthority(_) :- fail.` 来表示“不安全前提在防护版中不再成立”。这样做的好处是：攻击链不是因为“模型被删空”而失败，而是因为构成攻击链的关键条件被防护措施主动切断。
 
-<SAURE_TODO>
-表 4-3 防护版新增谓词与约束说明表占位。
-建议包含字段：
-- 谓词名称；
-- 含义；
-- 对应现实防护思路；
-- 阻断的攻击环节。
-建议至少包括：
-- `topicAuthEnabled/2`
-- `publisherACLEnabled/2`
-- `singleAuthoritativePublisher/2`
-- `blockedInjectionByAuth/2`
-- `blockedInjectionByACL/2`
-- `defenseEffective/2`
-建议说明的问题：
-- 让读者看懂防护版不是完全重写，而是在攻击版基础上加约束；
-- 体现规则层防护和代码层防护的映射关系。
-建议排版：
-- 四列表格；
-- 可以加一列“对应第六节实现位置”但不是必须。
-</SAURE_TODO>
+|新增谓词|含义|对应防护思路|阻断的攻击环节|
+|:---:|:---:|:---:|:---:|
+|`topicAuthEnabled/2`|话题认证已启用|通过认证机制确保只有合法发布者能向关键 topic 发布消息|阻断攻击者直接注入伪造消息的前提|
+|`publisherACLEnabled/2`|发布者访问控制已启用|通过访问控制列表限制哪些节点可以发布到关键 topic|阻断攻击者成为合法发布者的前提|
+|`singleAuthoritativePublisher/2`|单一权威发布者约束|确保关键 topic 上只有一个被认可的权威发布者存在|阻断竞争性 publisher 导致的状态振荡前提|
+|`blockedInjectionByAuth/2`|注入被话题认证阻断|当 topic 认证启用时，攻击者的伪造消息无法通过认证检查|解释为什么攻击链在防护版中失效|
+|`blockedInjectionByACL/2`|注入被访问控制阻断|当 publisher ACL 启用时，攻击者无法成为合法发布者|解释为什么攻击链在防护版中失效|
+|`defenseEffective/2`|防护措施有效|综合表达防护措施在规则层使攻击链失效|总结性结论，表明防护设计达到了预期效果|
+
+<center>表 4-3 防护版新增谓词与约束说明表</center>
 
 #### 4.3.2 攻击链失效条件分析
 
