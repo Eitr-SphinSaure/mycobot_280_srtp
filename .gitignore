@@ -1,0 +1,19 @@
+# Local ROS2 workspace and build artifacts
+colcon_ws/
+build/
+install/
+log/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Large local media not suitable for normal GitHub push
+*.mp4
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+

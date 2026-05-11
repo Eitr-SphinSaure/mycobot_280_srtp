@@ -1,0 +1,71 @@
+% ==================== 1. 漏洞事实（论文2. Representation章节格式）====================
+% 参考论文：vulExists(主机名, CVE编号, 涉及程序)
+vulExists(mycobot, 'CVE-2024-5806', moveit).  % MoveIt身份验证绕过漏洞
+vulExists(mycobot, 'ROS2-UNENCRYPTED', ros2_comm).  % ROS2未加密通信漏洞
+
+% 参考论文：vulProperty(CVE编号, 利用范围, 后果)
+vulProperty('CVE-2024-5806', remoteExploit, privEscalation).  % 远程利用→权限提升
+vulProperty('ROS2-UNENCRYPTED', remoteExploit, infoLeak).  % 远程利用→数据泄露
+
+% ==================== 2. 配置事实（适配Ubuntu20.04+ROS2路径）====================
+% 参考论文：networkService(主机名, 服务名, 协议, 端口, 运行权限)
+networkService(mycobot, ros2_comm, TCP, 11311, ubuntu).  % ROS2通信端口（默认11311，可改）
+networkService(mycobot, moveit, TCP, 5555, ubuntu).  % MoveIt端口（默认5555，可改）
+networkService(mycobot, joint_control, TCP, 8080, root).  % 关节控制端口（默认8080，可改）
+
+% 参考论文：filePath(主机名, 权限, 程序路径)（Ubuntu20.04+ROS2 Humble默认路径）
+filePath(mycobot, root, '/opt/ros/humble/lib/joint_state_publisher/joint_state_publisher').
+
+% ==================== 3. 网络规则（单机械臂简化版）====================
+% 参考论文：hacl(源地址, 目标地址, 协议, 端口)
+hacl(remote_attacker, mycobot, TCP, 11311).  % 允许攻击者访问ROS2端口
+hacl(remote_attacker, mycobot, TCP, 5555).  % 允许攻击者访问MoveIt端口
+hacl(remote_attacker, mycobot, TCP, 8080).  % 允许攻击者访问关节控制端口
+
+% ==================== 4. 主体与政策（论文4.3章节格式）====================
+% 参考论文：hasAccount(主体, 主机, 账户类型)
+hasAccount(attacker, remote_attacker, malicious).  % 攻击者为恶意主体
+hasAccount(admin, mycobot, ubuntu).  % Ubuntu20.04默认管理员账户
+
+malicious(attacker).  % 标记恶意主体
+
+% 参考论文：allow(主体, 操作, 资源)
+allow(admin, control, mycobot_joint).  % 允许管理员控制关节
+allow(ubuntu, read, ros2_data).  % 允许普通用户读取ROS2数据
+
+% ==================== 5. 推理规则（完全复用论文4.1章节核心规则）====================
+% 规则1：远程漏洞利用→执行任意代码（新增 hasAccount 关联主体和源地址）
+execCode(Attacker, Host, Priv) :-
+    hasAccount(Attacker, SrcHost, _),  % 绑定：攻击者→对应的源主机（remote_attacker）
+    vulExists(Host, VulID, Prog),
+    vulProperty(VulID, remoteExploit, privEscalation),
+    networkService(Host, Prog, Protocol, Port, Priv),
+    hacl(SrcHost, Host, Protocol, Port),  % 用绑定的 SrcHost 匹配网络规则
+    malicious(Attacker).
+
+% 规则2：未加密通信→获取验证信息（同样新增关联）
+obtainAuthInfo(Attacker, Host) :-
+    hasAccount(Attacker, SrcHost, _),  % 攻击者→源主机（remote_attacker）
+    vulExists(Host, VulID, Prog),
+    vulProperty(VulID, remoteExploit, infoLeak),
+    networkService(Host, Prog, TCP, 11311, _),
+    hacl(SrcHost, Host, TCP, 11311),  % 匹配网络规则
+    malicious(Attacker).
+
+% 规则3：获取验证信息+身份绕过→提升至root权限
+escalateToRoot(Attacker, Host) :-
+    obtainAuthInfo(Attacker, Host),
+    vulExists(Host, 'CVE-2024-5806', moveit),
+    networkService(Host, joint_control, TCP, 8080, root).
+
+% 规则4：root权限→控制机械臂（攻击目标）
+controlArm(Attacker, Host) :-
+    (execCode(Attacker, Host, root); escalateToRoot(Attacker, Host)),
+    filePath(Host, root, '/opt/ros/humble/lib/joint_state_publisher/joint_state_publisher').
+
+% 规则5：政策违规检测（论文4.5章节格式）
+policyViolation(Attacker, Action, Resource) :-
+    controlArm(Attacker, mycobot),
+    Action = control,
+    Resource = mycobot_joint,
+    not allow(Attacker, control, mycobot_joint).

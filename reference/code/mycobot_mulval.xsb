@@ -1,0 +1,71 @@
+% ==================== 1. Vulnerability facts (paper sec.2 Representation) ====================
+% Reference: vulExists(hostname, CVE_id, affected_program)
+vulExists(mycobot, 'CVE-2024-5806', moveit).  % MoveIt authentication bypass vulnerability
+vulExists(mycobot, 'ROS2-UNENCRYPTED', ros2_comm).  % ROS2 unencrypted communication vulnerability
+
+% Reference: vulProperty(CVE_id, exploit_scope, consequence)
+vulProperty('CVE-2024-5806', remoteExploit, privEscalation).  % remote exploit -> privilege escalation
+vulProperty('ROS2-UNENCRYPTED', remoteExploit, infoLeak).  % remote exploit -> information leak
+
+% ==================== 2. Configuration facts (adapted for Ubuntu20.04 + ROS2 paths) ====================
+% Reference: networkService(hostname, service_name, protocol, port, run_privilege)
+networkService(mycobot, ros2_comm, TCP, 11311, ubuntu).  % ROS2 communication port (default 11311, configurable)
+networkService(mycobot, moveit, TCP, 5555, ubuntu).  % MoveIt port (default 5555, configurable)
+networkService(mycobot, joint_control, TCP, 8080, root).  % Joint control port (default 8080, configurable)
+
+% Reference: filePath(hostname, privilege, program_path) (Ubuntu20.04 + ROS2 Humble default path)
+filePath(mycobot, root, '/opt/ros/humble/lib/joint_state_publisher/joint_state_publisher').
+
+% ==================== 3. Network rules (single manipulator simplified) ====================
+% Reference: hacl(source_addr, dest_addr, protocol, port)
+hacl(remote_attacker, mycobot, TCP, 11311).  % allow attacker to access ROS2 port
+hacl(remote_attacker, mycobot, TCP, 5555).  % allow attacker to access MoveIt port
+hacl(remote_attacker, mycobot, TCP, 8080).  % allow attacker to access joint control port
+
+% ==================== 4. Subjects and policies (paper sec.4.3 format) ====================
+% Reference: hasAccount(subject, host, account_type)
+hasAccount(attacker, remote_attacker, malicious).  % attacker is a malicious subject
+hasAccount(admin, mycobot, ubuntu).  % Ubuntu20.04 default admin account
+
+malicious(attacker).  % mark malicious subject
+
+% Reference: allow(subject, action, resource)
+allow(admin, control, mycobot_joint).  % allow admin to control joints
+allow(ubuntu, read, ros2_data).  % allow ubuntu user to read ROS2 data
+
+% ==================== 5. Inference rules (reuse core rules from paper sec.4.1) ====================
+% Rule 1: Remote vuln exploitation -> execute arbitrary code (added hasAccount linking subject and source host)
+execCode(Attacker, Host, Priv) :-
+    hasAccount(Attacker, SrcHost, _),  % binding: attacker -> corresponding source host (remote_attacker)
+    vulExists(Host, VulID, Prog),
+    vulProperty(VulID, remoteExploit, privEscalation),
+    networkService(Host, Prog, Protocol, Port, Priv),
+    hacl(SrcHost, Host, Protocol, Port),  % match network rule using bound SrcHost
+    malicious(Attacker).
+
+% Rule 2: Unencrypted communication -> obtain authentication info (also uses linking)
+obtainAuthInfo(Attacker, Host) :-
+    hasAccount(Attacker, SrcHost, _),  % attacker -> source host (remote_attacker)
+    vulExists(Host, VulID, Prog),
+    vulProperty(VulID, remoteExploit, infoLeak),
+    networkService(Host, Prog, TCP, 11311, _),
+    hacl(SrcHost, Host, TCP, 11311),  % match network rule
+    malicious(Attacker).
+
+% Rule 3: obtain auth info + identity bypass -> escalate to root
+escalateToRoot(Attacker, Host) :-
+    obtainAuthInfo(Attacker, Host),
+    vulExists(Host, 'CVE-2024-5806', moveit),
+    networkService(Host, joint_control, TCP, 8080, root).
+
+% Rule 4: root privilege -> control robotic arm (attack goal)
+controlArm(Attacker, Host) :-
+    (execCode(Attacker, Host, root); escalateToRoot(Attacker, Host)),
+    filePath(Host, root, '/opt/ros/humble/lib/joint_state_publisher/joint_state_publisher').
+
+% Rule 5: policy violation detection (paper sec.4.5 format)
+policyViolation(Attacker, Action, Resource) :-
+    controlArm(Attacker, mycobot),
+    Action = control,
+    Resource = mycobot_joint,
+    not allow(Attacker, control, mycobot_joint).

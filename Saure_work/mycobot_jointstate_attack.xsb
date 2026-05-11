@@ -1,0 +1,180 @@
+% ============================================================
+% mycobot_jointstate_attack.xsb
+% End-stage lightweight XSB/MulVAL-style reasoning for
+% ROS2 JointState forgery and competing publisher attacks.
+%
+% Modeling goal:
+% 1. Explain how an attacker forges /joint_states and tampers
+%    with RViz pose display.
+% 2. Explain how a normal publisher and a malicious publisher
+%    can coexist and cause state oscillation.
+% 3. Optionally describe how the same forged topic could be
+%    propagated to lower layers if a bridge node trusts it.
+% ============================================================
+
+% ==================== 1. Hosts, nodes, topics ====================
+
+host(attacker_host).
+host(mycobot_vm).
+
+rosNode(mycobot_vm, joint_state_publisher_gui).
+rosNode(mycobot_vm, robot_state_publisher).
+rosNode(mycobot_vm, rviz2).
+rosNode(mycobot_vm, sync_plan_arduino).   % optional bridge node found in source
+
+rosTopic(mycobot_vm, joint_states_topic).
+rosTopic(mycobot_vm, tf_topic).
+
+topicName(joint_states_topic, '/joint_states').
+topicName(tf_topic, '/tf').
+
+publishes(joint_state_publisher_gui, joint_states_topic).
+subscribes(robot_state_publisher, joint_states_topic).
+publishes(robot_state_publisher, tf_topic).
+subscribes(rviz2, tf_topic).
+subscribes(sync_plan_arduino, joint_states_topic).
+
+% ==================== 2. Security-relevant facts ====================
+
+% Attacker can reach the ROS2 domain/network and inspect topics.
+hacl(attacker_host, mycobot_vm, ros2_domain).
+ros2DiscoveryEnabled(mycobot_vm).
+
+% /joint_states is not protected by source authentication or access control.
+noTopicAuth(mycobot_vm, joint_states_topic).
+noPublisherACL(mycobot_vm, joint_states_topic).
+
+% robot_state_publisher trusts JointState messages that are syntactically valid.
+trustsSubscriberInput(robot_state_publisher, joint_states_topic).
+
+% RViz trusts the TF stream derived from robot_state_publisher.
+trustsSubscriberInput(rviz2, tf_topic).
+
+% The attacker understands the JointState message schema after inspection.
+messageType(joint_states_topic, 'sensor_msgs/msg/JointState').
+
+% A syntactically acceptable forged JointState must satisfy:
+% 1. correct joint naming
+% 2. valid current timestamp
+% 3. values inside joint limits
+requiresValidJointNames(joint_states_topic).
+requiresValidTimestamp(joint_states_topic).
+requiresJointRange(joint_states_topic).
+
+% Experimental facts obtained from the VM:
+jointNamesMatch(joint_states_topic).
+jointRangesKnown(joint_states_topic).
+canGenerateCurrentTimestamp(attacker_host).
+
+% Competing-publisher scenario:
+legitimatePublisher(joint_state_publisher_gui, joint_states_topic).
+maliciousPublisher(attacker_host, joint_states_topic).
+
+% Optional bridge node risk:
+bridgeNode(sync_plan_arduino).
+forwardsToPhysicalLayer(sync_plan_arduino).
+
+% ==================== 3. Capability inference ====================
+
+% Rule 1: if the attacker can reach the ROS2 domain and discovery is enabled,
+% the attacker can enumerate visible topics.
+enumerateTopic(AttackerHost, Vm, Topic) :-
+    hacl(AttackerHost, Vm, ros2_domain),
+    ros2DiscoveryEnabled(Vm),
+    rosTopic(Vm, Topic).
+
+% Rule 2: after enumerating the topic and knowing its message type,
+% the attacker can learn how to construct a syntactically valid message.
+learnMessageSchema(AttackerHost, Topic) :-
+    enumerateTopic(AttackerHost, _, Topic),
+    messageType(Topic, _).
+
+% Rule 3: the attacker can forge a valid JointState only if
+% the topic is discoverable, the schema is known, joint names match,
+% ranges are known, and a valid timestamp can be generated.
+forgeValidJointState(AttackerHost, Topic) :-
+    learnMessageSchema(AttackerHost, Topic),
+    requiresValidJointNames(Topic),
+    requiresValidTimestamp(Topic),
+    requiresJointRange(Topic),
+    jointNamesMatch(Topic),
+    jointRangesKnown(Topic),
+    canGenerateCurrentTimestamp(AttackerHost).
+
+% Rule 4: if there is no topic-level authentication or publisher ACL,
+% the attacker can inject forged JointState into the target topic.
+injectForgedJointState(AttackerHost, Vm, Topic) :-
+    forgeValidJointState(AttackerHost, Topic),
+    rosTopic(Vm, Topic),
+    noTopicAuth(Vm, Topic),
+    noPublisherACL(Vm, Topic).
+
+% ==================== 4. Display-layer attack chain ====================
+
+% Rule 5: if robot_state_publisher trusts the forged JointState,
+% the attacker can tamper with the TF stream indirectly.
+tamperTFStream(AttackerHost, Vm) :-
+    injectForgedJointState(AttackerHost, Vm, joint_states_topic),
+    subscribes(robot_state_publisher, joint_states_topic),
+    trustsSubscriberInput(robot_state_publisher, joint_states_topic),
+    publishes(robot_state_publisher, tf_topic).
+
+% Rule 6: if RViz trusts the tampered TF stream, pose display is misled.
+misleadPoseDisplay(AttackerHost, Vm) :-
+    tamperTFStream(AttackerHost, Vm),
+    subscribes(rviz2, tf_topic),
+    trustsSubscriberInput(rviz2, tf_topic).
+
+% ==================== 5. Competing publisher attack chain ====================
+
+% Rule 7: if a legitimate publisher and a malicious publisher coexist on the same
+% unprotected topic, the system enters a state-competition condition.
+competingPublisherState(AttackerHost, Vm, Topic) :-
+    legitimatePublisher(_, Topic),
+    maliciousPublisher(AttackerHost, Topic),
+    rosTopic(Vm, Topic),
+    noTopicAuth(Vm, Topic),
+    noPublisherACL(Vm, Topic).
+
+% Rule 8: competing publishers on /joint_states may cause oscillating pose display.
+oscillatingPoseDisplay(AttackerHost, Vm) :-
+    competingPublisherState(AttackerHost, Vm, joint_states_topic),
+    subscribes(robot_state_publisher, joint_states_topic),
+    subscribes(rviz2, tf_topic).
+
+% ==================== 6. Optional lower-layer propagation ====================
+
+% Rule 9: if a bridge node subscribes to /joint_states and forwards to the physical layer,
+% forged state may propagate beyond display.
+propagateToBridge(AttackerHost, Vm) :-
+    injectForgedJointState(AttackerHost, Vm, joint_states_topic),
+    bridgeNode(sync_plan_arduino),
+    subscribes(sync_plan_arduino, joint_states_topic).
+
+% Rule 10: once forwarded by the bridge, the risk extends from display to control/physical layer.
+physicalLayerRisk(AttackerHost, Vm) :-
+    propagateToBridge(AttackerHost, Vm),
+    forwardsToPhysicalLayer(sync_plan_arduino).
+
+% ==================== 7. Policy layer ====================
+
+% Only trusted control nodes should be allowed to publish authoritative robot state.
+allowAuthority(joint_state_publisher_gui, joint_states_topic).
+
+policyViolation(AttackerHost, publish, joint_states_topic) :-
+    injectForgedJointState(AttackerHost, _, joint_states_topic),
+    not allowAuthority(AttackerHost, joint_states_topic).
+
+policyViolation(AttackerHost, destabilize, robot_pose_display) :-
+    oscillatingPoseDisplay(AttackerHost, _).
+
+policyViolation(AttackerHost, influence, physical_layer) :-
+    physicalLayerRisk(AttackerHost, _).
+
+% ==================== 8. Suggested queries ====================
+%
+% ?- misleadPoseDisplay(attacker_host, mycobot_vm).
+% ?- oscillatingPoseDisplay(attacker_host, mycobot_vm).
+% ?- physicalLayerRisk(attacker_host, mycobot_vm).
+% ?- policyViolation(attacker_host, Action, Resource).
+%
