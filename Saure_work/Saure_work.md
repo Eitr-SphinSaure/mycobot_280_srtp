@@ -824,3 +824,6 @@ if __name__ == '__main__':
     main()
 PY
 ```
+
+ros2 topic info /_joint_states_authorized_source -v
+ros2 topic info /_joint_states_trusted -v

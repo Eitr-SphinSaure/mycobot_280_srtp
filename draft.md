@@ -1156,157 +1156,924 @@ yes
 
 很好，接下来我们开始写报告。报告必须严格按照学术论文的规范来写（因为是报告而非Latex格式的论文，因此标准可以适当放宽）
 首先，我要求你仔细阅读`reference`文件夹下我们立项和中期答辩时的文档，在`report/report.md`中先搭出一个骨架来，包括摘要，实验目的背景这些可以先填上，后面的大小标题可以组织起来，等我确认后再开始填充内容。请你先搭出这个骨架来。
-## 图 4-1 草稿：XSB 建模映射图
 
-这张图的重点不是再讲一次攻击流程，而是说明：
+## 图 4-2 草稿：攻击版规则层逻辑链图
 
-- 左边是真实的 ROS2 实验对象；
-- 右边是 XSB 中对应的事实、规则和查询；
-- 第四节的逻辑建模是对实验链路的抽象，而不是脱离实验单独构造。
+这张图和图 4-1 的分工不一样。
+
+- 图 4-1 讲的是：ROS2 实验对象如何映射到 XSB 元素；
+- 图 4-2 讲的是：攻击版规则在 XSB 里是如何一步步从基础能力推出攻击结果的。
+
+所以这张图最适合画成 **一条主链 + 两条支线**：
+
+1. 主链：显示层状态欺骗
+2. 支线 A：竞争性 publisher 振荡
+3. 支线 B：下游传播到物理层的潜在风险
 
 ### 推荐画法
 
-最合适的是 **左右对照式映射图**：
+最合适的是 **主链横向、支线纵向挂接** 的逻辑链图。
 
-- 左侧：ROS2 实验对象
-- 中间：映射箭头
-- 右侧：XSB 建模元素
+#### 主链（横向）
 
-建议不要把所有谓词都写进去。每个 ROS2 对象只映射 1~2 个最关键的谓词，这样图会更清楚。
+从左到右画 6 个框：
 
-### 推荐结构
+```text
+--------------------+
+| enumerateTopic    |
++-------------------+
+          |
+          v
++--------------------+
+| learnMessageSchema |
++--------------------+
+          |
+          v
++------------------------+
+| forgeValidJointState   |
++------------------------+
+          |
+          v
++------------------------+
+| injectForgedJointState |
++------------------------+
+          |
+          v
++----------------+
+| tamperTFStream |
++----------------+
+          |
+          v
++---------------------+
+| misleadPoseDisplay  |
++---------------------+
+```
 
-#### 左侧：ROS2 实验对象
+这条主链对应正文里的核心攻击链 A：
 
-建议用 4 个蓝色框，自上而下排列：
+- 枚举关键 topic
+- 学习消息结构
+- 伪造合法 JointState
+- 注入伪造状态
+- 篡改 TF 链
+- 最终误导 RViz 显示
 
-1. `ROS2 节点`
-   - `joint_state_publisher_gui`
-   - `robot_state_publisher`
-   - `RViz`
+### 支线 A：竞争性 publisher 风险
 
-2. `ROS2 话题`
-   - `/joint_states`
-   - `/tf`
+这条线建议从主链中段右下方另起一条支线，单独挂出来：
 
-3. `攻击者与环境`
-   - 同域接入攻击者
-   - ROS2 发现机制
-   - 可访问关键 topic
+```text
+ legitimatePublisher
+          +
+ maliciousPublisher
+          |
+          v
+ competingPublisherState
+          |
+          v
+ oscillatingPoseDisplay
+```
 
-4. `实验结果/风险`
-   - 误导姿态显示
-   - 状态振荡
-   - 影响下游物理层
+如果你想图更工整，可以把 `legitimatePublisher` 和 `maliciousPublisher` 画成两个小框并列，再汇入 `competingPublisherState`。
 
-#### 右侧：XSB 建模元素
+这条支线的含义是：
 
-建议用 4 个橙色框，自上而下排列：
+- 不需要攻击者完全独占状态链
+- 只要合法 publisher 和恶意 publisher 并存
+- 且系统缺少来源约束
+- 就能推出姿态振荡结论
 
-1. `事实层 Facts`
-   - `rosTopic(...)`
-   - `messageType(...)`
-   - `subscribes(...)`
-   - `legitimatePublisher(...)`
+### 支线 B：下游传播风险
 
-2. `能力与条件`
-   - `enumerateTopic(...)`
-   - `learnMessageSchema(...)`
-   - `canGenerateCurrentTimestamp(...)`
-   - `jointRangesKnown(...)`
+这条线建议从 `injectForgedJointState` 向下再拉一条支线：
 
-3. `规则层 Rules`
-   - `injectForgedJointState(...)`
-   - `tamperTFStream(...)`
-   - `competingPublisherState(...)`
+```text
+ injectForgedJointState
+          |
+          v
+   propagateToBridge
+          |
+          v
+  physicalLayerRisk
+```
 
-4. `查询层 Queries`
-   - `misleadPoseDisplay(...)`
-   - `oscillatingPoseDisplay(...)`
-   - `physicalLayerRisk(...)`
-   - `policyViolation(...)`
+如果你希望和 XSB 文件严格贴齐，也可以根据你最终规则里实际使用的谓词换成：
 
-### 中间箭头怎么连
+- `bridgeNode(...)`
+- `forwardsToPhysicalLayer(...)`
+- `physicalLayerRisk(...)`
 
-中间只连最关键的 4~6 条：
+也就是说，PPT 里这一支线有两种写法：
 
-1. `ROS2 节点` -> `subscribes(...) / legitimatePublisher(...)`
-2. `ROS2 话题` -> `rosTopic(...) / messageType(...)`
-3. `攻击者与环境` -> `enumerateTopic(...) / learnMessageSchema(...)`
-4. `实验结果/风险` -> `misleadPoseDisplay(...) / oscillatingPoseDisplay(...) / physicalLayerRisk(...)`
+#### 写法 A：偏逻辑链表达
+- `injectForgedJointState`
+- `propagateToBridge`
+- `physicalLayerRisk`
 
-中间可以加一个小字：
+#### 写法 B：偏规则文件原名
+- `injectForgedJointState`
+- `bridgeNode / forwardsToPhysicalLayer`
+- `physicalLayerRisk`
 
-- `实验对象抽象为逻辑谓词`
+如果你问我推荐哪种：  
+**正文图更建议写法 A**，因为更好懂；如果你想和 XSB 文件逐字对齐，再选写法 B。
 
-### 适合直接抄到 PPT 里的简化版文字
+### 图中可以额外标的小条件
 
-#### 左侧
+为了避免主链看起来像“攻击者想发就能发”，建议在 `forgeValidJointState` 上方或旁边加一个小气泡框：
 
-`ROS2 节点`
-- joint_state_publisher_gui
-- robot_state_publisher
-- RViz
+```text
+关键条件：
+- 关节名称匹配
+- 关节范围合法
+- 时间戳有效
+```
 
-`ROS2 话题`
-- /joint_states
-- /tf
+这样读者会立刻明白：
 
-`攻击者与环境`
-- 同域接入
-- 话题发现
-- 关键话题可访问
+- 主链不是简单的 topic 写入
+- 而是“满足语义条件之后”的有效伪造
 
-`实验结果`
-- 误导显示
-- 状态振荡
-- 物理层风险
+### 推荐最终排版
 
-#### 右侧
+#### 版本 A：最推荐
 
-`事实层 Facts`
-- rosTopic(...)
-- messageType(...)
-- subscribes(...)
+- 中间一条横向主链
+- 上方或下方一个小条件框，贴近 `forgeValidJointState`
+- 右下方挂“竞争性 publisher”支线
+- 左下方或下下方挂“物理层传播”支线
 
-`能力条件`
-- enumerateTopic(...)
-- learnMessageSchema(...)
-- canGenerateCurrentTimestamp(...)
+这种结构很适合 PPT，而且和第四节文字结构最一致。
 
-`规则层 Rules`
-- injectForgedJointState(...)
-- tamperTFStream(...)
-- competingPublisherState(...)
+#### 版本 B：如果你想更规整
 
-`查询层 Queries`
-- misleadPoseDisplay(...)
-- oscillatingPoseDisplay(...)
-- policyViolation(...)
+把整张图分成三层：
+
+1. 上层：输入与前提
+   - `enumerateTopic`
+   - `learnMessageSchema`
+   - `forgeValidJointState`
+2. 中层：核心攻击
+   - `injectForgedJointState`
+   - `tamperTFStream`
+   - `misleadPoseDisplay`
+3. 下层：扩展风险
+   - `competingPublisherState`
+   - `oscillatingPoseDisplay`
+   - `physicalLayerRisk`
+
+这个版本更像论文图，但 PPT 里稍微没版本 A 那么灵活。
+
+### 直接照着画的 PPT 版
+
+如果你现在是想“不要再看抽象说明，直接告诉我 PPT 怎么摆”，那就按下面这版来：
+
+#### 第一步：先摆主链
+
+在页面中间横向排 6 个框，从左到右：
+
+1. `enumerateTopic(...)`
+2. `learnMessageSchema(...)`
+3. `forgeValidJointState(...)`
+4. `injectForgedJointState(...)`
+5. `tamperTFStream(...)`
+6. `misleadPoseDisplay(...)`
+
+箭头全部从左到右直连。
+
+#### 第二步：加条件框
+
+在 `forgeValidJointState(...)` 的上方放一个小白框，写：
+
+```text
+关键条件
+- 关节名称匹配
+- 关节范围合法
+- 时间戳有效
+```
+
+再用一个短箭头或虚线把它指向 `forgeValidJointState(...)`。
+
+#### 第三步：加竞争性 publisher 支线
+
+在 `injectForgedJointState(...)` 右下方单独拉一条支线：
+
+- 左边并排两个小框：
+  - `legitimatePublisher(...)`
+  - `maliciousPublisher(...)`
+- 两个框一起汇入：
+  - `competingPublisherState(...)`
+- 再往右或往下接：
+  - `oscillatingPoseDisplay(...)`
+
+这条线建议用和主链不同的颜色，比如橙红色。
+
+#### 第四步：加物理层传播支线
+
+从 `injectForgedJointState(...)` 的下方再拉一条支线：
+
+1. `propagateToBridge(...)`
+2. `physicalLayerRisk(...)`
+
+如果你想和 XSB 文件更严格对齐，也可以把中间那个框写成：
+
+- `bridgeNode(...) / forwardsToPhysicalLayer(...)`
+
+但如果只是为了报告可读性，`propagateToBridge(...)` 更直观。
+
+#### 第五步：颜色分层
+
+建议这样分：
+
+- 蓝色：前提与基础能力
+  - `enumerateTopic(...)`
+  - `learnMessageSchema(...)`
+  - `forgeValidJointState(...)`
+- 橙色：显示层主攻击链
+  - `injectForgedJointState(...)`
+  - `tamperTFStream(...)`
+  - `misleadPoseDisplay(...)`
+- 红色：竞争性 publisher 支线
+  - `competingPublisherState(...)`
+  - `oscillatingPoseDisplay(...)`
+- 灰色或深黄色：物理层传播支线
+  - `propagateToBridge(...)`
+  - `physicalLayerRisk(...)`
+
+#### 第六步：图里一定要讲清楚的意思
+
+这张图最核心要让读者一眼看懂三件事：
+
+1. 攻击不是“直接误导 RViz”，而是通过一串规则一步步推出来的；
+2. 主攻击链是“状态欺骗”；
+3. 扩展风险包括“竞争性振荡”和“向物理层传播”。
+
+#### 最终最推荐的布局
+
+```text
+主链：横向居中
+支线 A：从 injectForgedJointState 右下挂接
+支线 B：从 injectForgedJointState 下方挂接
+条件框：放在 forgeValidJointState 上方
+```
+
+这样排出来最稳，也最像你正文第四节的结构。
 
 ### 配色建议
 
-- 蓝色：ROS2 实验世界
-- 橙色：XSB 逻辑建模世界
-- 中间箭头：深灰或蓝灰
+- 蓝色：基础能力与中间规则
+- 橙色：显示层攻击结果主链
+- 红色：竞争性 publisher 风险支线
+- 灰色或深橙：物理层传播风险支线
 
-这样能和前面的图 2-2、图 3-1 保持风格统一。
+这样读者能一眼区分：
+
+- 哪条是主攻击链
+- 哪条是扩展风险
 
 ### 图题建议
 
-`图 4-1 ROS2 实验对象到 XSB 建模元素的映射关系`
+`图 4-2 攻击版规则层逻辑链`
 
 ### 图注建议
 
-`左侧展示本文实验中涉及的 ROS2 节点、关键话题、攻击者能力与实验结果，右侧展示相应的 XSB 事实、规则与查询。该图用于说明第四节中的逻辑建模并非脱离实验单独构造，而是对已验证攻击链的形式化抽象。`
+`图中主链展示了从 topic 枚举、消息学习、合法状态伪造到显示层状态欺骗的规则推理过程；下方支线分别展示了竞争性 publisher 导致状态振荡的扩展链，以及状态风险向下游桥接节点和潜在物理层传播的风险链。`
+
+### 适合直接抄到 PPT 里的最终文字
+
+#### 主链
+- `enumerateTopic(...)`
+- `learnMessageSchema(...)`
+- `forgeValidJointState(...)`
+- `injectForgedJointState(...)`
+- `tamperTFStream(...)`
+- `misleadPoseDisplay(...)`
+
+#### 支线 A
+- `legitimatePublisher(...)`
+- `maliciousPublisher(...)`
+- `competingPublisherState(...)`
+- `oscillatingPoseDisplay(...)`
+
+#### 支线 B
+- `injectForgedJointState(...)`
+- `propagateToBridge(...)`
+- `physicalLayerRisk(...)`
+
+#### 条件框
+- 关节名称匹配
+- 关节范围合法
+- 时间戳有效
 
 ### 我更推荐的最终版本
 
-如果你想效率最高，我建议：
+如果你想效率最高，就用这个结构：
 
-- 左边 4 个蓝色框
-- 右边 4 个橙色框
-- 中间只画 4~6 条关键映射箭头
+1. 一条横向主链；
+2. `forgeValidJointState` 上方一个小条件框；
+3. `competingPublisherState` 作为右下支线；
+4. `physicalLayerRisk` 作为下方次支线。
 
-不要把所有谓词都塞进去。  
-这张图的目标是“让读者理解映射关系”，不是“把整份 XSB 文件画成图”。
+这样最清楚，也最容易服务正文里的“主线 + 扩展线”叙述。
+
+## 图 6-1 草稿：防护版 XSB 断链逻辑图
+
+这张图最省事、也最好的画法，不是从零重新设计，而是**直接基于图 4-2 的攻击版规则层逻辑链做增强版**。
+
+也就是说：
+
+- 保留图 4-2 的主链和两条扩展链；
+- 在被防护截断的位置加“防护条件”；
+- 用叉号、虚线、变灰或 `blocked` 标记说明“攻击链在这里断掉了”。
+
+这样读者会一眼看懂：
+
+- 图 4-2：攻击为什么成立
+- 图 6-1：防护后是哪一环不再成立
+
+### 这张图想说明什么
+
+图 6-1 不是要告诉读者“结果不同了”，而是要明确展示：
+
+**防护引入后，攻击链并不是神秘地失效，而是在具体规则条件处被切断。**
+
+### 最推荐的画法：图 4-2 的防护增强版
+
+#### 主链仍然保留
+
+主链仍然保留：
+
+- `enumerateTopic(...)`
+- `learnMessageSchema(...)`
+- `forgeValidJointState(...)`
+- `injectForgedJointState(...)`
+- `tamperTFStream(...)`
+- `misleadPoseDisplay(...)`
+
+但要把前 3 个框和后 3 个框区分开：
+
+- 前 3 个：保留正常颜色，表示这些前置能力在逻辑上仍可能存在；
+- 后 3 个：变浅灰，表示防护后不再可达或不再成立。
+
+#### 断链点 1：阻断消息注入
+
+在：
+
+- `forgeValidJointState(...) -> injectForgedJointState(...)`
+
+这条连接上，加一个绿色防护框：
+
+- `topicAuthEnabled(...)`
+- `publisherACLEnabled(...)`
+
+topicAuthEnabled(...)
+publisherACLEnabled(...)
+
+再加一个红色叉号或小字：
+
+- `注入被阻断`
+
+含义是：
+
+- 攻击者即使学会了消息结构并能构造合法 `JointState`
+- 也无法再顺利把伪造状态注入到关键 topic
+
+所以后面的：
+
+- `injectForgedJointState(...)`
+- `tamperTFStream(...)`
+- `misleadPoseDisplay(...)`
+
+都应该显示为“失效/不可达”。
+
+#### 断链点 2：阻断竞争性 publisher
+
+保留支线 A：
+
+- `legitimatePublisher(...)`
+- `maliciousPublisher(...)`
+- `competingPublisherState(...)`
+- `oscillatingPoseDisplay(...)`
+
+但在两个 publisher 汇入 `competingPublisherState(...)` 的位置，加一个绿色防护框：
+
+- `singleAuthoritativePublisher(...)`
+
+再加一个叉号或标注：
+
+- `竞争输入被阻断`
+
+然后把：
+
+- `competingPublisherState(...)`
+- `oscillatingPoseDisplay(...)`
+
+都变灰，表示这条扩展链在防护版中不再成立。
+
+#### 断链点 3：下游传播链自然失效
+
+支线 B 最简单的处理方式是：
+
+- 仍然保留：
+  - `propagateToBridge(...)`
+  - `physicalLayerRisk(...)`
+- 但在前面补一条来源关系：
+  - `injectForgedJointState(...) -> propagateToBridge(...)`
+
+然后因为 `injectForgedJointState(...)` 已经被阻断，
+
+- `propagateToBridge(...)`
+- `physicalLayerRisk(...)`
+
+也都变灰。
+
+图里可以额外加一个小字：
+
+- `由主链截断导致不可达`
+
+### 直接照着画的 PPT 版
+
+#### 第一步：复制图 4-2
+
+直接复制一份图 4-2，不要重画框架。
+
+#### 第二步：把攻击成功部分变灰
+
+把以下框改成浅灰或半透明：
+
+- `injectForgedJointState(...)`
+- `tamperTFStream(...)`
+- `misleadPoseDisplay(...)`
+- `competingPublisherState(...)`
+- `oscillatingPoseDisplay(...)`
+- `propagateToBridge(...)`
+- `physicalLayerRisk(...)`
+
+这样读者一眼就知道：
+
+**这些攻击结果在防护版里不再可达。**
+
+#### 第三步：在主链切点加防护框
+
+在 `forgeValidJointState(...)` 和 `injectForgedJointState(...)` 之间加一个绿色框，写：
+
+```text
+topicAuthEnabled(...)
+publisherACLEnabled(...)
+```
+
+再在这个绿色框旁边放一个红色 `×`，或写：
+
+- `blocked`
+
+#### 第四步：在扩展链 A 切点加防护框
+
+在两个 publisher 汇入 `competingPublisherState(...)` 的位置加一个绿色框，写：
+
+```text
+singleAuthoritativePublisher(...)
+```
+
+同样在旁边放一个 `×` 或写：
+
+- `blocked`
+
+#### 第五步：在支线 B 上加来源关系
+
+如果版面允许，从 `injectForgedJointState(...)` 往下拉一条线到：
+
+- `propagateToBridge(...)`
+
+再接：
+
+- `physicalLayerRisk(...)`
+
+并把整条支线变灰。
+
+### 推荐颜色
+
+- 蓝色：前置能力仍存在
+- 绿色：防护条件
+- 浅灰：防护后不再成立的攻击规则
+- 红色叉号：断链位置
+
+这个配色会和图 4-2 形成很清楚的攻防对照。
+
+### 建议加的标题标签
+
+如果你愿意再加一点解释，可以在图里直接放两个小标签：
+
+- `防护切点 1：消息注入被阻断`
+- `防护切点 2：竞争性 publisher 被阻断`
+
+这样图会更“会说话”。
+
+### 图题建议
+
+`图 6-1 防护版 XSB 断链逻辑图`
+
+### 图注建议
+
+`该图在图 4-2 攻击版规则层逻辑链的基础上，标出了防护版中使攻击链失效的关键切点。对于显示层状态欺骗主链，topic 级认证与 publisher ACL 阻断了伪造状态的注入；对于竞争性 publisher 风险链，单一权威 publisher 约束阻断了多源竞争输入。因此，防护版中的顶层攻击查询不再成立。`
+
+### 最后一句最实用的建议
+
+这张图不要重新发明结构，**直接复制图 4-2，然后把“防护条件”加在箭头上，把后续攻击结论灰掉**，这是最快也最稳的做法。
+
+## 图 6-2 草稿：代码级防护后消息流图
+
+这张图和图 6-1 的分工不一样：
+
+- 图 6-1 讲的是：XSB 规则层里，攻击链在哪一环被切断；
+- 图 6-2 讲的是：代码实现之后，ROS2 消息流在结构上是如何被重构的。
+
+所以这张图不需要再强调“攻击为什么成立”，而是要明确展示：
+
+**原始输入不再直接进入下游显示链，必须先经过可信过滤层，只有通过校验的消息才会进入可信 topic。**
+
+### 最推荐的画法
+
+最适合做成一张 **自左向右的流程/架构图**，主链清楚，必要时再加一个桥接分支。
+
+### 主链应该怎么画
+
+从左到右排 6 个框：
+
+1. `joint_state_publisher_gui`
+2. `/_joint_states_authorized_source`
+3. `trusted_joint_state_filter`
+4. `/_joint_states_trusted`
+5. `robot_state_publisher`
+6. `RViz`
+
+箭头全部从左到右直连。
+
+### 推荐的文字写法
+
+#### 节点框
+
+蓝色框可以写：
+
+joint_state_publisher_gui
+发布原始关节状态
+
+trusted_joint_state_filter
+执行单一 publisher / 时间戳 / 名称 / 范围检查
+
+robot_state_publisher
+仅订阅可信 JointState 并更新 TF
+
+`RViz`  
+显示机械臂姿态
+
+#### topic 框
+
+建议用不同颜色和节点区分：
+
+/_joint_states_authorized_source
+原始输入层: 未直接信任
+
+/_joint_states_trusted
+可信输出层: 仅转发通过校验的 JointState
+
+### 图里一定要强调的两个概念
+
+#### 1. 原始输入层
+
+在 `/_joint_states_authorized_source` 上方或旁边加一个小红框：
+
+- `原始输入`
+- `待校验`
+
+含义是：
+
+- 这个 topic 不再是权威状态输入
+- 它只是进入过滤器前的原始入口
+
+#### 2. 可信输出层
+
+在 `/_joint_states_trusted` 上方或旁边加一个小绿框：
+
+- `可信输出`
+- `通过校验后转发`
+
+含义是：
+
+- 只有通过过滤器检查的消息
+- 才能进入真正影响下游的状态链
+
+### 过滤器附近建议怎么表现
+
+为了让读者一眼看懂这个节点的价值，建议在 `trusted_joint_state_filter` 旁边加一个小白色说明框：
+
+```text
+核心检查：
+- 单一 publisher
+- 时间戳有效
+- 关节名称匹配
+- 关节范围合法
+```
+
+这个框不要太大，够说明作用就行。
+
+### 是否要补桥接节点分支
+
+如果版面允许，我建议加。
+
+最简单的画法是：
+
+从 `/_joint_states_trusted` 再向下分一条支线到：
+
+- `sync_plan_arduino`
+- 或者更泛化一点写成：`bridge / downstream node`
+
+然后在框内写：
+sync_plan_arduino
+仅订阅可信 JointState
+
+这样这张图就能把“显示链”和“潜在下游链”一起收住。
+
+如果你觉得图会太挤，也可以先不画这个分支，只保留主链。  
+主链本身已经足够表达第六节最核心的设计思想。
+
+### 推荐最终版布局
+
+#### 版本 A：最推荐，最清楚
+
+一条横向主链：
+
+```text
+joint_state_publisher_gui
+        ->
+/_joint_states_authorized_source
+        ->
+trusted_joint_state_filter
+        ->
+/_joint_states_trusted
+        ->
+robot_state_publisher
+        ->
+RViz
+```
+
+然后：
+
+- 在 `/_joint_states_authorized_source` 上方加红色小标签：`原始输入`
+- 在 `/_joint_states_trusted` 上方加绿色小标签：`可信输出`
+- 在 `trusted_joint_state_filter` 上方或下方加一个白色说明框：`核心检查`
+
+#### 版本 B：如果你想更像“架构图”
+
+可以把图分成三列：
+
+1. 输入层
+   - `joint_state_publisher_gui`
+   - `/_joint_states_authorized_source`
+2. 过滤层
+   - `trusted_joint_state_filter`
+3. 可信消费层
+   - `/_joint_states_trusted`
+   - `robot_state_publisher`
+   - `RViz`
+
+这个版本更像系统架构，但不如版本 A 那么一眼直观。
+
+### 配色建议
+
+- 蓝色：ROS2 节点
+- 橙色或浅红色：原始输入 topic
+- 绿色：可信输出 topic
+- 白色：过滤器检查说明框
+
+这样和图 3-1 的“未防护 / 防护后系统场景图”也能形成风格呼应。
+
+### 这张图要说明的问题
+
+这张图最重要的不是“过滤器做了多少检查”，而是：
+
+1. 系统不再直接信任裸 `/joint_states`
+2. 信任链已经从结构上重构
+3. 原始输入和可信输出被明确分层
+4. 下游只消费可信 topic
+
+换句话说，这张图要把“防护不是简单加几个 if，而是重新划分信任边界”这件事讲清楚。
+
+### 图题建议
+
+`图 6-2 代码级防护后消息流结构`
+
+### 图注建议
+
+`代码级防护实现后，原始 JointState 输入不再直接进入下游显示链，而是先进入原始输入 topic，由 trusted_joint_state_filter 执行单一 publisher、时间戳、关节名称和关节范围检查；只有通过校验的消息才会被转发到可信输出 topic，并继续供 robot_state_publisher 与 RViz 使用。`
+
+### 适合直接抄到 PPT 里的最终文字
+
+#### 主链
+- `joint_state_publisher_gui`
+- `/_joint_states_authorized_source`
+- `trusted_joint_state_filter`
+- `/_joint_states_trusted`
+- `robot_state_publisher`
+- `RViz`
+
+#### 红色标签
+- 原始输入
+- 待校验
+
+#### 绿色标签
+- 可信输出
+- 通过校验后转发
+
+#### 过滤器说明框
+- 单一 publisher
+- 时间戳有效
+- 关节名称匹配
+- 关节范围合法
+
+### 一句话最实用建议
+
+如果你想最快画出来，就按这个思路：
+
+**主链横向排开，原始输入用红色标，可信输出用绿色标，过滤器旁边放一个小检查框。**
+
+## 图 8-1 草稿：后续工作路线图
+
+这张图和前面的结构图、攻击链图不一样。
+
+- 前面的图主要说明“我们已经做了什么”；
+- 这张图要说明“在现有工作的基础上，后面还能怎么往下走”。
+
+所以它最适合画成一张 **分层路线图**，而不是复杂的时序图或消息流图。
+
+### 最推荐的画法
+
+建议按 **短期可做 / 中期扩展 / 长期目标** 三层来画。
+
+这比把五个方向平铺出来更清楚，因为它能体现：
+
+- 哪些是基于现有成果最容易继续推进的；
+- 哪些需要新环境、新平台或更高工程复杂度；
+- 哪些属于更完整、更系统化的长期研究目标。
+
+### 推荐结构
+
+#### 第一层：短期可做
+
+建议放 2 个框：
+
+1. `实机闭环验证`
+   - 在现有 myCobot-280-arduino 平台上完成从状态链到执行层的进一步验证
+   - 核心关注：当前显示层与规则层结论能否向真实动作层延伸
+
+实机闭环验证
+在现有 myCobot-280-arduino 平台上完成从状态链到执行层的进一步验证
+核心关注：当前显示层与规则层结论能否向真实动作层延伸
+
+2. `MoveIt2 / 轨迹控制链`
+   - 继续打通比 `JointState` 更高层的控制接口
+   - 核心关注：从状态链扩展到轨迹链、规划链与控制链
+
+MoveIt2 / 轨迹控制链
+继续打通比 JointState 更高层的控制接口
+核心关注：从状态链扩展到轨迹链、规划链与控制链
+
+这两个方向最适合放在“短期”里，因为它们本质上是对你现有工作主线的自然延伸。
+
+#### 第二层：中期扩展
+
+建议放 2 个框：
+
+1. `SROS2 / DDS Security`
+   - 引入节点认证、加密通信、访问控制和 topic 级权限管理
+   - 核心关注：把当前“最小应用层防护原型”升级为更正式的中间件安全机制
+SROS2 / DDS Security
+引入节点认证、加密通信、访问控制和 topic 级权限管理
+核心关注：把当前“最小应用层防护原型”升级为更正式的中间件安全机制
+
+2. `多机器人与更多 ROS2 接口`
+   - 从单机械臂、单 `JointState` 主线扩展到多机器人协同环境和更多关键接口
+   - 核心关注：不同 topic、service、action 在开放 ROS2 域中的风险传播
+多机器人与更多 ROS2 接口
+从单机械臂、单 JointState 主线扩展到多机器人协同环境和更多关键接口
+核心关注：不同 topic、service、action 在开放 ROS2 域中的风险传播
+这两个方向更像“从当前原型走向更完整系统”，放在中期最合适。
+
+#### 第三层：长期目标
+
+建议放 1 个大框：
+
+1. `更高程度自动化评估`
+   - 将实验复现、规则推理、策略判定、防护验证进一步联动
+   - 核心关注：形成更系统的自动化机器人攻击面分析与安全评估流程
+
+更高程度自动化评估
+将实验复现、规则推理、策略判定、防护验证进一步联动
+核心关注：形成更系统的自动化机器人攻击面分析与安全评估流程
+
+这个方向最适合放在最后，因为它是对前面所有工作线的整合。
+
+### 最适合 PPT 的布局
+
+#### 版本 A：三层箭头式路线图
+
+从上到下三层：
+
+```text
+短期可做
+ ├─ 实机闭环验证
+ └─ MoveIt2 / 轨迹控制链
+
+中期扩展
+ ├─ SROS2 / DDS Security
+ └─ 多机器人与更多 ROS2 接口
+
+长期目标
+ └─ 更高程度自动化评估
+```
+
+层与层之间用向下箭头连接，表示路线逐步推进。
+
+这是我最推荐的版本，因为最清楚，也最容易画。
+
+#### 版本 B：中心辐射式
+
+中间放一个中心框：
+
+- `基于状态链的攻击复现—推理—防护闭环`
+
+然后向外发散 5 个方向：
+
+- 实机闭环验证
+- MoveIt2 / 轨迹控制链
+- SROS2 / DDS Security
+- 多机器人与更多 ROS2 接口
+- 更高程度自动化评估
+
+这个版本更像“展望脑图”，但缺点是时间层次不如版本 A 清晰。
+
+### 我更推荐的最终版本
+
+优先选 **版本 A：三层箭头式路线图**。
+
+因为你的第八节正文已经是按“从当前工作往后扩展”的逻辑写的，用分层路线图最贴。
+
+### 可以直接抄到 PPT 里的文字
+
+#### 顶部标题
+
+`后续工作路线图`
+
+#### 第一层：短期可做
+
+- `实机闭环验证`
+- `MoveIt2 / 轨迹控制链`
+
+#### 第二层：中期扩展
+
+- `SROS2 / DDS Security`
+- `多机器人与更多 ROS2 接口`
+
+#### 第三层：长期目标
+
+- `更高程度自动化评估`
+
+### 每个框里可以补的一句短说明
+
+如果你想让图更完整，可以在每个框下方加一行小字：
+
+#### 实机闭环验证
+- 从显示层结论延伸到执行层验证
+
+#### MoveIt2 / 轨迹控制链
+- 从状态链扩展到规划链和控制链
+
+#### SROS2 / DDS Security
+- 从应用层原型升级到正式中间件安全机制
+
+#### 多机器人与更多 ROS2 接口
+- 扩展到更复杂协同场景和更多关键接口
+
+#### 更高程度自动化评估
+- 联动实验复现、规则推理与防护验证
+
+### 配色建议
+
+- 短期可做：蓝色
+- 中期扩展：橙色
+- 长期目标：绿色
+
+这样一眼就能看出阶段差异。
+
+### 图题建议
+
+`图 8-1 后续工作路线图`
+
+### 图注建议
+
+`该图按照短期可做、中期扩展和长期目标三个层次，总结了本文工作在实机闭环、轨迹控制链、安全中间件、多机器人场景和自动化评估等方向上的后续推进路径。其目的在于说明本文并非一次性结论，而是可向更完整机器人安全研究持续扩展的起点。`
+
+### 一句话最实用建议
+
+如果你想最快画出来，就画成：
+
+**三层分级路线图：短期两项，中期两项，长期一项。**
