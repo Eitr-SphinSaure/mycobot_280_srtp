@@ -426,8 +426,8 @@ XSB Version 5.0.0 (Green Tea) of May 15, 2022
 [x86_64-pc-linux-gnu 64 bits; mode: optimal; engine: slg-wam; scheduling: local]
 [Build date: 2025-11-28]
 
-| ?- ['joint.xsb'].
-[Compiling ./joint.xsb]
+| ?- ['joint_attack.xsb'].
+[Compiling ./joint_attack.xsb]
 % Specialising partially instantiated calls to hacl/3
 % Specialising partially instantiated calls to subscribes/2
 % Specialising partially instantiated calls to trustsSubscriberInput/2
@@ -435,8 +435,8 @@ XSB Version 5.0.0 (Green Tea) of May 15, 2022
 % Specialising partially instantiated calls to bridgeNode/1
 % Specialising partially instantiated calls to forwardsToPhysicalLayer/1
 % Specialising partially instantiated calls to allowAuthority/2
-[./joint.xsb compiled, cpu time used: 0.032 seconds]
-[./joint.xsb loaded]
+[./joint_attack.xsb compiled, cpu time used: 0.032 seconds]
+[./joint_attack.xsb loaded]
 
 yes
 | ?- misleadPoseDisplay(attacker_host, mycobot_vm).
@@ -557,8 +557,8 @@ XSB Version 5.0.0 (Green Tea) of May 15, 2022
 [x86_64-pc-linux-gnu 64 bits; mode: optimal; engine: slg-wam; scheduling: local]
 [Build date: 2025-11-28]
 
-| ?- ['joint.xsb'].
-[./joint.xsb loaded, cpu time used: 0.001 seconds]
+| ?- ['joint_attack.xsb'].
+[./joint_attack.xsb loaded, cpu time used: 0.001 seconds]
 
 yes
 | ?- spy(competingPublisherState/3).
